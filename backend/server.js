@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'compress-720p-crf23-v4';
+const SERVER_VERSION = 'raw-webm-upload-v1';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -41,7 +41,10 @@ app.get('/uploads', (req, res) => {
         }
 
         const videoFiles = files
-            .filter((file) => file.toLowerCase().endsWith('.mp4'))
+            .filter((file) => {
+                const lower = file.toLowerCase();
+                return lower.endsWith('.mp4') || lower.endsWith('.webm');
+            })
             .sort((a, b) => b.localeCompare(a));
 
         const html = `
@@ -130,35 +133,6 @@ const createTimestamp = () => {
     return `${date}_${time}`;
 };
 
-const probeStreams = (filePath) => {
-    return new Promise((resolve, reject) => {
-        execFile(
-            'ffprobe',
-            [
-                '-v',
-                'error',
-                '-show_streams',
-                '-show_format',
-                '-print_format',
-                'json',
-                filePath,
-            ],
-            (error, stdout, stderr) => {
-                if (error) {
-                    reject(new Error(stderr || error.message));
-                    return;
-                }
-
-                try {
-                    resolve(JSON.parse(stdout));
-                } catch (parseError) {
-                    reject(parseError);
-                }
-            }
-        );
-    });
-};
-
 // tijdelijke opslag (.webm)
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -205,115 +179,26 @@ app.post('/upload', upload.single('video'), (req, res) => {
         const timestamp = createTimestamp();
 
         const tempPath = req.file.path;
-        const outputFilename = `${safeName}_${timestamp}.mp4`;
+        const outputFilename = `${safeName}_${timestamp}.webm`;
         const outputPath = path.join(uploadsDir, outputFilename);
 
-        probeStreams(tempPath)
-            .then((probeData) => {
-                console.log('FFprobe input data:', JSON.stringify(probeData, null, 2));
-                console.log(`[${SERVER_VERSION}] Using compressed 720p CRF 23 FFmpeg conversion settings`);
-
-                const hasVideo = probeData.streams?.some(
-                    (stream) => stream.codec_type === 'video'
-                );
-                const hasAudio = probeData.streams?.some(
-                    (stream) => stream.codec_type === 'audio'
-                );
-
-                if (!hasVideo) {
-                    throw new Error('Uploaded file does not contain a video stream');
-                }
-
-                const ffmpegArgs = [
-                    '-y',
-                    '-i',
-                    tempPath,
-                    '-map',
-                    '0:v:0',
-                    '-c:v',
-                    'libx264',
-                    '-preset',
-                    'ultrafast',
-                    '-crf',
-                    '23',
-                    '-vf',
-                    'scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1',
-                    '-pix_fmt',
-                    'yuv420p',
-                ];
-
-                if (hasAudio) {
-                    ffmpegArgs.push(
-                        '-map',
-                        '0:a:0',
-                        '-c:a',
-                        'aac',
-                        '-b:a',
-                        '128k',
-                        '-ac',
-                        '1',
-                        '-ar',
-                        '48000'
-                    );
-                }
-
-                ffmpegArgs.push('-movflags', '+faststart', outputPath);
-
-                console.log('Running FFmpeg args:', ffmpegArgs);
-
-                execFile('ffmpeg', ffmpegArgs, (error, stdout, stderr) => {
-                    console.log('FFmpeg stdout:', stdout);
-                    console.log('FFmpeg stderr:', stderr);
-
-                    if (error) {
-                        console.error('FFmpeg error:', error);
-                        return res.status(500).json({
-                            error: 'Video conversion failed',
-                            details: stderr,
-                        });
-                    }
-
-                    probeStreams(outputPath)
-                        .then((convertedProbeData) => {
-                            console.log(
-                                'FFprobe output data:',
-                                JSON.stringify(convertedProbeData, null, 2)
-                            );
-                            const audioStream = convertedProbeData.streams?.find(
-                                (stream) => stream.codec_type === 'audio'
-                            );
-                            console.log('Converted audio stream:', audioStream);
-
-                            if (fs.existsSync(tempPath)) {
-                                fs.unlinkSync(tempPath);
-                            }
-
-                            console.log('Converted to compressed 720p MP4:', outputFilename);
-
-                            res.json({
-                                message: 'Upload + compression successful',
-                                file: outputFilename,
-                                hasAudio: convertedProbeData.streams?.some(
-                                    (stream) => stream.codec_type === 'audio'
-                                ) || false,
-                            });
-                        })
-                        .catch((probeError) => {
-                            console.error('FFprobe output error:', probeError);
-                            return res.status(500).json({
-                                error: 'Converted video probing failed',
-                                details: probeError.message,
-                            });
-                        });
-                });
-            })
-            .catch((probeError) => {
-                console.error('FFprobe input error:', probeError);
+        fs.rename(tempPath, outputPath, (renameError) => {
+            if (renameError) {
+                console.error('File rename error:', renameError);
                 return res.status(500).json({
-                    error: 'Uploaded video probing failed',
-                    details: probeError.message,
+                    error: 'Saving uploaded video failed',
+                    details: renameError.message,
                 });
+            }
+
+            console.log(`[${SERVER_VERSION}] Saved raw WebM upload: ${outputFilename}`);
+
+            return res.json({
+                message: 'Upload successful',
+                file: outputFilename,
+                hasAudio: null,
             });
+        });
 
     } catch (error) {
         console.error('Upload route error:', error);

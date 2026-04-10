@@ -8,7 +8,7 @@ function App() {
   const autoStopTimeoutRef = useRef(null);
   const recordingIntervalRef = useRef(null);
   const messageTimeoutRef = useRef(null);
-  const processingProgressIntervalRef = useRef(null);
+
 
   const [cameraReady, setCameraReady] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -46,28 +46,8 @@ function App() {
     setCameraReady(false);
   };
 
-  const stopProcessingProgressAnimation = () => {
-    if (processingProgressIntervalRef.current) {
-      clearInterval(processingProgressIntervalRef.current);
-      processingProgressIntervalRef.current = null;
-    }
-  };
 
-  const animateProgressTo = (target, stepDelay = 90) => {
-    return new Promise((resolve) => {
-      const interval = setInterval(() => {
-        setUploadProgress((currentProgress) => {
-          if (currentProgress >= target) {
-            clearInterval(interval);
-            resolve();
-            return target;
-          }
 
-          return Math.min(currentProgress + 1, target);
-        });
-      }, stepDelay);
-    });
-  };
 
   const initCamera = async () => {
     try {
@@ -206,7 +186,7 @@ function App() {
     if (recordingIntervalRef.current) {
       clearInterval(recordingIntervalRef.current);
     }
-    stopProcessingProgressAnimation();
+
 
     if (
       mediaRecorderRef.current &&
@@ -240,7 +220,6 @@ function App() {
     const formData = new FormData();
     formData.append('video', blob, `confession.${extension}`);
     formData.append('name', name.trim());
-    stopProcessingProgressAnimation();
     setUploadProgress(0);
 
     try {
@@ -257,36 +236,18 @@ function App() {
             (progressEvent.loaded * 100) / progressEvent.total
           );
 
-          const combinedPercentage = Math.min(
-            Math.round(uploadPercentage * 0.88),
-            88
-          );
-
-          setUploadProgress(combinedPercentage);
-
-          if (uploadPercentage >= 100 && !processingProgressIntervalRef.current) {
-            processingProgressIntervalRef.current = setInterval(() => {
-              setUploadProgress((currentProgress) => {
-                if (currentProgress >= 96) {
-                  return currentProgress;
-                }
-
-                return currentProgress + 1;
-              });
-            }, 320);
-          }
+          setUploadProgress(Math.min(uploadPercentage, 100));
         },
       });
 
+
       console.log('Upload success:', response.data);
-      stopProcessingProgressAnimation();
-      await animateProgressTo(100, 110);
+      setUploadProgress(100);
       showTemporaryMessage('Uploaden gelukt');
       setName('');
     } catch (err) {
       console.error('Upload error:', err);
-      stopProcessingProgressAnimation();
-
+      
       if (err.response) {
         console.error('Server response:', err.response.data);
         console.error('Status:', err.response.status);
@@ -294,10 +255,10 @@ function App() {
 
       showTemporaryMessage('Upload mislukt');
     } finally {
-      stopProcessingProgressAnimation();
+      
       setRecordingSecondsLeft(60);
       chunksRef.current = [];
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       setIsUploading(false);
       setUploadProgress(0);
     }
