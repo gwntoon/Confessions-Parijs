@@ -4,11 +4,15 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const { google } = require('googleapis');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-v4';
+const SERVER_VERSION = 'raw-webm-upload-drive-v1';
 const FRONTEND_URL = process.env.FRONTEND_URL;
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
 app.use(cors({
     origin: (origin, callback) => {
@@ -25,6 +29,20 @@ app.use(cors({
         return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
 }));
+
+const driveAuth = GOOGLE_CLIENT_EMAIL && GOOGLE_PRIVATE_KEY
+    ? new google.auth.GoogleAuth({
+        credentials: {
+            client_email: GOOGLE_CLIENT_EMAIL,
+            private_key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        },
+        scopes: ['https://www.googleapis.com/auth/drive.file'],
+    })
+    : null;
+
+const drive = driveAuth
+    ? google.drive({ version: 'v3', auth: driveAuth })
+    : null;
 
 const uploadsDir = path.join(__dirname, 'uploads');
 
@@ -284,6 +302,31 @@ const probeVideoDuration = (filePath) => {
     });
 };
 
+const uploadToDrive = async (filePath, fileName) => {
+    if (!drive) {
+        throw new Error('Google Drive is not configured');
+    }
+
+    if (!GOOGLE_DRIVE_FOLDER_ID) {
+        throw new Error('GOOGLE_DRIVE_FOLDER_ID is missing');
+    }
+
+    const response = await drive.files.create({
+        requestBody: {
+            name: fileName,
+            parents: [GOOGLE_DRIVE_FOLDER_ID],
+        },
+        media: {
+            mimeType: 'video/webm',
+            body: fs.createReadStream(filePath),
+        },
+        fields: 'id, webViewLink, webContentLink',
+        supportsAllDrives: true,
+    });
+
+    return response.data;
+};
+
 // tijdelijke opslag (.webm)
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -333,7 +376,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
         const outputFilename = `${safeName}_${timestamp}.webm`;
         const outputPath = path.join(uploadsDir, outputFilename);
 
-        fs.rename(tempPath, outputPath, (renameError) => {
+        fs.rename(tempPath, outputPath, async (renameError) => {
             if (renameError) {
                 console.error('File rename error:', renameError);
                 return res.status(500).json({
@@ -342,13 +385,32 @@ app.post('/upload', upload.single('video'), (req, res) => {
                 });
             }
 
-            console.log(`[${SERVER_VERSION}] Saved raw WebM upload: ${outputFilename}`);
+            try {
+                console.log(`[${SERVER_VERSION}] Saved raw WebM upload locally: ${outputFilename}`);
 
-            return res.json({
-                message: 'Upload successful',
-                file: outputFilename,
-                hasAudio: null,
-            });
+                const driveFile = await uploadToDrive(outputPath, outputFilename);
+                console.log(`[${SERVER_VERSION}] Uploaded to Google Drive: ${driveFile.id}`);
+
+                if (fs.existsSync(outputPath)) {
+                    fs.unlinkSync(outputPath);
+                }
+
+                return res.json({
+                    message: 'Upload successful',
+                    file: outputFilename,
+                    hasAudio: null,
+                    driveFileId: driveFile.id,
+                    driveWebViewLink: driveFile.webViewLink || null,
+                    driveWebContentLink: driveFile.webContentLink || null,
+                });
+            } catch (driveError) {
+                console.error('Google Drive upload error:', driveError);
+
+                return res.status(500).json({
+                    error: 'Upload to Google Drive failed',
+                    details: driveError.message,
+                });
+            }
         });
 
     } catch (error) {
