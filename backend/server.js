@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-v3';
+const SERVER_VERSION = 'raw-webm-upload-v4';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -224,9 +224,9 @@ const probeVideoDuration = (filePath) => {
                 '-v',
                 'error',
                 '-show_entries',
-                'format=duration',
+                'format=duration:stream=codec_type,duration:stream_tags=DURATION',
                 '-of',
-                'default=noprint_wrappers=1:nokey=1',
+                'json',
                 filePath,
             ],
             (error, stdout) => {
@@ -236,8 +236,49 @@ const probeVideoDuration = (filePath) => {
                     return;
                 }
 
-                const duration = Number.parseFloat(stdout.trim());
-                resolve(Number.isFinite(duration) ? duration : null);
+                try {
+                    const data = JSON.parse(stdout);
+
+                    const formatDuration = Number.parseFloat(data?.format?.duration);
+                    if (Number.isFinite(formatDuration) && formatDuration > 0) {
+                        resolve(formatDuration);
+                        return;
+                    }
+
+                    const streamDuration = data?.streams
+                        ?.map((stream) => Number.parseFloat(stream.duration))
+                        .find((duration) => Number.isFinite(duration) && duration > 0);
+
+                    if (Number.isFinite(streamDuration) && streamDuration > 0) {
+                        resolve(streamDuration);
+                        return;
+                    }
+
+                    const taggedDuration = data?.streams
+                        ?.map((stream) => stream?.tags?.DURATION)
+                        .find((duration) => typeof duration === 'string' && duration.trim());
+
+                    if (taggedDuration) {
+                        const parts = taggedDuration.trim().split(':');
+
+                        if (parts.length === 3) {
+                            const hours = Number.parseFloat(parts[0]);
+                            const minutes = Number.parseFloat(parts[1]);
+                            const seconds = Number.parseFloat(parts[2]);
+                            const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
+
+                            if (Number.isFinite(totalSeconds) && totalSeconds > 0) {
+                                resolve(totalSeconds);
+                                return;
+                            }
+                        }
+                    }
+
+                    resolve(null);
+                } catch (parseError) {
+                    console.error('FFprobe duration parse error:', parseError.message);
+                    resolve(null);
+                }
             }
         );
     });
