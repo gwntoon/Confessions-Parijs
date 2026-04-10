@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'compress-720p-crf23-v3';
+const SERVER_VERSION = 'compress-720p-crf23-v4';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -31,6 +31,73 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
+
+// Simple uploads index for testing
+app.get('/uploads', (req, res) => {
+    fs.readdir(uploadsDir, (error, files) => {
+        if (error) {
+            console.error('Failed to read uploads directory:', error);
+            return res.status(500).send('Could not read uploads directory');
+        }
+
+        const videoFiles = files
+            .filter((file) => file.toLowerCase().endsWith('.mp4'))
+            .sort((a, b) => b.localeCompare(a));
+
+        const html = `
+            <!doctype html>
+            <html lang="en">
+            <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>Uploads</title>
+                <style>
+                    body {
+                        font-family: Arial, sans-serif;
+                        background: #111;
+                        color: #fff;
+                        margin: 0;
+                        padding: 24px;
+                    }
+                    h1 {
+                        margin-top: 0;
+                    }
+                    ul {
+                        list-style: none;
+                        padding: 0;
+                        margin: 0;
+                    }
+                    li {
+                        padding: 12px 0;
+                        border-bottom: 1px solid rgba(255,255,255,0.12);
+                    }
+                    a {
+                        color: #9ad1ff;
+                        text-decoration: none;
+                        word-break: break-word;
+                    }
+                    a:hover {
+                        text-decoration: underline;
+                    }
+                    .empty {
+                        opacity: 0.75;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>Uploads</h1>
+                ${videoFiles.length
+                    ? `<ul>${videoFiles
+                        .map((file) => `<li><a href="/uploads/${encodeURIComponent(file)}" target="_blank" rel="noopener noreferrer">${file}</a></li>`)
+                        .join('')}</ul>`
+                    : '<p class="empty">No uploads found.</p>'}
+            </body>
+            </html>
+        `;
+
+        res.send(html);
+    });
+});
 
 // Serve uploaded files publicly (for testing)
 app.use('/uploads', express.static(uploadsDir));
