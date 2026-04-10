@@ -34,7 +34,7 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Serve uploaded files publicly (for testing)
 app.use('/uploads', express.static(uploadsDir));
-}
+
 
 const sanitizeName = (name = 'unknown') => {
     return name
