@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 
 function App() {
@@ -8,6 +8,10 @@ function App() {
   const autoStopTimeoutRef = useRef(null);
   const recordingIntervalRef = useRef(null);
   const messageTimeoutRef = useRef(null);
+
+  const canvasRef = useRef(null);
+  const canvasStreamRef = useRef(null);
+  const drawFrameRef = useRef(null);
 
 
   const [cameraReady, setCameraReady] = useState(false);
@@ -32,6 +36,92 @@ function App() {
     }, 5000);
   };
 
+  const stopCanvasRecordingResources = () => {
+    if (drawFrameRef.current) {
+      cancelAnimationFrame(drawFrameRef.current);
+      drawFrameRef.current = null;
+    }
+
+    if (canvasStreamRef.current) {
+      canvasStreamRef.current.getTracks().forEach((track) => track.stop());
+      canvasStreamRef.current = null;
+    }
+
+    if (canvasRef.current) {
+      canvasRef.current.width = 0;
+      canvasRef.current.height = 0;
+      canvasRef.current = null;
+    }
+  };
+
+  const createPortraitRecordingStream = (sourceVideo, sourceStream) => {
+    const canvas = document.createElement('canvas');
+    const canvasWidth = 720;
+    const canvasHeight = 1280;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) {
+      throw new Error('Canvas context kon niet worden aangemaakt');
+    }
+
+    canvasRef.current = canvas;
+
+    const drawFrame = () => {
+      const sourceWidth = sourceVideo.videoWidth || 720;
+      const sourceHeight = sourceVideo.videoHeight || 1280;
+      const sourceIsLandscape = sourceWidth > sourceHeight;
+
+      context.fillStyle = '#000';
+      context.fillRect(0, 0, canvasWidth, canvasHeight);
+      context.save();
+
+      if (sourceIsLandscape) {
+        context.translate(canvasWidth / 2, canvasHeight / 2);
+        context.rotate(Math.PI / 2);
+
+        const rotatedWidth = canvasHeight;
+        const rotatedHeight = canvasWidth;
+        const scale = Math.max(rotatedWidth / sourceWidth, rotatedHeight / sourceHeight);
+        const drawWidth = sourceWidth * scale;
+        const drawHeight = sourceHeight * scale;
+
+        context.drawImage(
+          sourceVideo,
+          -drawWidth / 2,
+          -drawHeight / 2,
+          drawWidth,
+          drawHeight
+        );
+      } else {
+        const scale = Math.max(canvasWidth / sourceWidth, canvasHeight / sourceHeight);
+        const drawWidth = sourceWidth * scale;
+        const drawHeight = sourceHeight * scale;
+        const offsetX = (canvasWidth - drawWidth) / 2;
+        const offsetY = (canvasHeight - drawHeight) / 2;
+
+        context.drawImage(sourceVideo, offsetX, offsetY, drawWidth, drawHeight);
+      }
+
+      context.restore();
+      drawFrameRef.current = requestAnimationFrame(drawFrame);
+    };
+
+    drawFrame();
+
+    const canvasStream = canvas.captureStream(30);
+    const audioTracks = sourceStream.getAudioTracks();
+    const composedStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...audioTracks,
+    ]);
+
+    canvasStreamRef.current = canvasStream;
+
+    return composedStream;
+  };
+
   const stopCamera = () => {
     const stream = videoRef.current?.srcObject;
 
@@ -44,6 +134,7 @@ function App() {
     }
 
     setCameraReady(false);
+    stopCanvasRecordingResources();
   };
 
 
@@ -121,7 +212,8 @@ function App() {
   };
 
   const startRecording = () => {
-    const stream = videoRef.current?.srcObject;
+    const sourceVideo = videoRef.current;
+    const stream = sourceVideo?.srcObject;
 
     if (!stream) {
       alert('Geen camerastream gevonden');
@@ -129,9 +221,18 @@ function App() {
       return;
     }
 
+    if (!sourceVideo) {
+      alert('Geen videobron gevonden');
+      setShowPreview(false);
+      return;
+    }
+
+    let recordingStream = stream;
     let recorder;
 
     try {
+      stopCanvasRecordingResources();
+      recordingStream = createPortraitRecordingStream(sourceVideo, stream);
       const preferredMimeTypes = [
         'video/webm;codecs=vp8,opus',
         'video/webm',
@@ -143,16 +244,16 @@ function App() {
 
       const recorderOptions = selectedMimeType
         ? {
-            mimeType: selectedMimeType,
-            videoBitsPerSecond: 1800000,
-            audioBitsPerSecond: 96000,
-          }
+          mimeType: selectedMimeType,
+          videoBitsPerSecond: 1800000,
+          audioBitsPerSecond: 96000,
+        }
         : {
-            videoBitsPerSecond: 1800000,
-            audioBitsPerSecond: 96000,
-          };
+          videoBitsPerSecond: 1800000,
+          audioBitsPerSecond: 96000,
+        };
 
-      recorder = new MediaRecorder(stream, recorderOptions);
+      recorder = new MediaRecorder(recordingStream, recorderOptions);
       console.log('Recorder mimeType:', recorder.mimeType);
       console.log('Recorder video bitrate:', recorder.videoBitsPerSecond);
       console.log('Recorder audio bitrate:', recorder.audioBitsPerSecond);
@@ -280,11 +381,18 @@ function App() {
       
       setRecordingSecondsLeft(60);
       chunksRef.current = [];
+      stopCanvasRecordingResources();
       await new Promise((resolve) => setTimeout(resolve, 2000));
       setIsUploading(false);
       setUploadProgress(0);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      stopCanvasRecordingResources();
+    };
+  }, []);
 
   return (
     <div style={styles.container}>
