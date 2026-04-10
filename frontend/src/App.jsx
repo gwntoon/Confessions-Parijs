@@ -54,14 +54,19 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 720, max: 720 },
+          height: { ideal: 1280, max: 1280 },
+          frameRate: { ideal: 24, max: 24 },
         },
         audio: true,
       });
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+      }
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        console.log('Video track settings:', videoTrack.getSettings());
       }
 
       setCameraReady(true);
@@ -127,13 +132,30 @@ function App() {
     let recorder;
 
     try {
-      if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
-        recorder = new MediaRecorder(stream, {
-          mimeType: 'video/webm;codecs=vp8,opus',
-        });
-      } else {
-        recorder = new MediaRecorder(stream);
-      }
+      const preferredMimeTypes = [
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ];
+
+      const selectedMimeType = preferredMimeTypes.find((type) =>
+        MediaRecorder.isTypeSupported(type)
+      );
+
+      const recorderOptions = selectedMimeType
+        ? {
+            mimeType: selectedMimeType,
+            videoBitsPerSecond: 900000,
+            audioBitsPerSecond: 64000,
+          }
+        : {
+            videoBitsPerSecond: 900000,
+            audioBitsPerSecond: 64000,
+          };
+
+      recorder = new MediaRecorder(stream, recorderOptions);
+      console.log('Recorder mimeType:', recorder.mimeType);
+      console.log('Recorder video bitrate:', recorder.videoBitsPerSecond);
+      console.log('Recorder audio bitrate:', recorder.audioBitsPerSecond);
     } catch (err) {
       console.error('MediaRecorder error:', err);
       alert('Opname starten lukt niet op dit apparaat of in deze browser');
