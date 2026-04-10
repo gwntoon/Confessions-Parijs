@@ -3,11 +3,10 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-v1';
+const SERVER_VERSION = 'raw-webm-upload-v2';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -40,12 +39,25 @@ app.get('/uploads', (req, res) => {
             return res.status(500).send('Could not read uploads directory');
         }
 
-        const videoFiles = files
-            .filter((file) => {
-                const lower = file.toLowerCase();
-                return lower.endsWith('.mp4') || lower.endsWith('.webm');
+        const videoFiles = files.filter((file) => {
+            const lower = file.toLowerCase();
+            return lower.endsWith('.mp4') || lower.endsWith('.webm');
+        });
+
+        const filesWithStats = videoFiles
+            .map((file) => {
+                const absolutePath = path.join(uploadsDir, file);
+                const stats = fs.statSync(absolutePath);
+
+                return {
+                    file,
+                    sizeBytes: stats.size,
+                    sizeLabel: formatBytes(stats.size),
+                    uploadedAt: stats.birthtime,
+                    uploadedAtLabel: stats.birthtime.toLocaleString('nl-NL'),
+                };
             })
-            .sort((a, b) => b.localeCompare(a));
+            .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
 
         const html = `
             <!doctype html>
@@ -64,6 +76,12 @@ app.get('/uploads', (req, res) => {
                     }
                     h1 {
                         margin-top: 0;
+                        margin-bottom: 8px;
+                    }
+                    p {
+                        color: rgba(255,255,255,0.75);
+                        margin-top: 0;
+                        margin-bottom: 24px;
                     }
                     ul {
                         list-style: none;
@@ -71,16 +89,23 @@ app.get('/uploads', (req, res) => {
                         margin: 0;
                     }
                     li {
-                        padding: 12px 0;
+                        padding: 14px 0;
                         border-bottom: 1px solid rgba(255,255,255,0.12);
                     }
                     a {
                         color: #9ad1ff;
                         text-decoration: none;
                         word-break: break-word;
+                        font-weight: 600;
                     }
                     a:hover {
                         text-decoration: underline;
+                    }
+                    .meta {
+                        margin-top: 6px;
+                        font-size: 14px;
+                        color: rgba(255,255,255,0.72);
+                        line-height: 1.5;
                     }
                     .empty {
                         opacity: 0.75;
@@ -89,9 +114,15 @@ app.get('/uploads', (req, res) => {
             </head>
             <body>
                 <h1>Uploads</h1>
-                ${videoFiles.length
-                    ? `<ul>${videoFiles
-                        .map((file) => `<li><a href="/uploads/${encodeURIComponent(file)}" target="_blank" rel="noopener noreferrer">${file}</a></li>`)
+                <p>Totaal: ${filesWithStats.length} videobestand(en)</p>
+                ${filesWithStats.length
+                    ? `<ul>${filesWithStats
+                        .map(({ file, sizeLabel, uploadedAtLabel }) => `
+                            <li>
+                                <a href="/uploads/${encodeURIComponent(file)}" target="_blank" rel="noopener noreferrer">${file}</a>
+                                <div class="meta">Geüpload: ${uploadedAtLabel}<br />Bestandsgrootte: ${sizeLabel}</div>
+                            </li>
+                        `)
                         .join('')}</ul>`
                     : '<p class="empty">No uploads found.</p>'}
             </body>
@@ -131,6 +162,19 @@ const createTimestamp = () => {
     ].join('');
 
     return `${date}_${time}`;
+};
+
+const formatBytes = (bytes = 0) => {
+    if (bytes === 0) return '0 B';
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const unitIndex = Math.min(
+        Math.floor(Math.log(bytes) / Math.log(1024)),
+        units.length - 1
+    );
+
+    const value = bytes / Math.pow(1024, unitIndex);
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
 // tijdelijke opslag (.webm)
