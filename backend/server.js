@@ -176,7 +176,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
                         '-map',
                         '0:a:0',
                         '-c:a',
-                        'aac_at',
+                        'aac',
                         '-b:a',
                         '128k',
                         '-ac',
