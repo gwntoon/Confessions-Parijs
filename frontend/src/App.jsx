@@ -56,7 +56,7 @@ function App() {
           facingMode: 'user',
           width: { ideal: 720, max: 720 },
           height: { ideal: 1280, max: 1280 },
-          frameRate: { ideal: 24, max: 24 },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: true,
       });
@@ -144,12 +144,12 @@ function App() {
       const recorderOptions = selectedMimeType
         ? {
             mimeType: selectedMimeType,
-            videoBitsPerSecond: 900000,
-            audioBitsPerSecond: 64000,
+            videoBitsPerSecond: 1800000,
+            audioBitsPerSecond: 96000,
           }
         : {
-            videoBitsPerSecond: 900000,
-            audioBitsPerSecond: 64000,
+            videoBitsPerSecond: 1800000,
+            audioBitsPerSecond: 96000,
           };
 
       recorder = new MediaRecorder(stream, recorderOptions);
