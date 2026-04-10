@@ -54,10 +54,9 @@ function App() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'user',
-          aspectRatio: { ideal: 9 / 16 },
-          width: { ideal: 1080 },
-          height: { ideal: 1920 },
-          frameRate: { ideal: 30, max: 30 },
+          width: { ideal: 720, max: 720 },
+          height: { ideal: 1280, max: 1280 },
+          frameRate: { ideal: 24, max: 24 },
         },
         audio: true,
       });
@@ -144,14 +143,14 @@ function App() {
 
       const recorderOptions = selectedMimeType
         ? {
-          mimeType: selectedMimeType,
-          videoBitsPerSecond: 1800000,
-          audioBitsPerSecond: 96000,
-        }
+            mimeType: selectedMimeType,
+            videoBitsPerSecond: 900000,
+            audioBitsPerSecond: 64000,
+          }
         : {
-          videoBitsPerSecond: 1800000,
-          audioBitsPerSecond: 96000,
-        };
+            videoBitsPerSecond: 900000,
+            audioBitsPerSecond: 64000,
+          };
 
       recorder = new MediaRecorder(stream, recorderOptions);
       console.log('Recorder mimeType:', recorder.mimeType);
@@ -270,7 +269,7 @@ function App() {
       setName('');
     } catch (err) {
       console.error('Upload error:', err);
-
+      
       if (err.response) {
         console.error('Server response:', err.response.data);
         console.error('Status:', err.response.status);
@@ -278,7 +277,7 @@ function App() {
 
       showTemporaryMessage('Upload mislukt');
     } finally {
-
+      
       setRecordingSecondsLeft(60);
       chunksRef.current = [];
       await new Promise((resolve) => setTimeout(resolve, 2000));
