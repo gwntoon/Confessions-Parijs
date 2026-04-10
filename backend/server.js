@@ -6,17 +6,30 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const SERVER_VERSION = 'compress-720p-crf23-v1';
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: (origin, callback) => {
+        const allowedOrigins = [
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            FRONTEND_URL,
+        ].filter(Boolean);
+
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
 }));
 
 const uploadsDir = path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir);
+    fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 const sanitizeName = (name = 'unknown') => {
@@ -91,6 +104,14 @@ const upload = multer({
     limits: {
         fileSize: 200 * 1024 * 1024,
     },
+});
+
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        service: 'confession-backend',
+        version: SERVER_VERSION,
+    });
 });
 
 app.post('/upload', upload.single('video'), (req, res) => {
@@ -230,5 +251,8 @@ app.post('/upload', upload.single('video'), (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT} [${SERVER_VERSION}]`);
+    console.log(`Server running on port ${PORT} [${SERVER_VERSION}]`);
+    if (FRONTEND_URL) {
+        console.log(`Allowed frontend origin: ${FRONTEND_URL}`);
+    }
 });
