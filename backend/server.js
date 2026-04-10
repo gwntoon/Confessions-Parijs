@@ -32,6 +32,10 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Serve uploaded files publicly (for testing)
+app.use('/uploads', express.static(uploadsDir));
+}
+
 const sanitizeName = (name = 'unknown') => {
     return name
         .toLowerCase()
