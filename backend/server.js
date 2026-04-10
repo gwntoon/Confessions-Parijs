@@ -3,10 +3,11 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-v2';
+const SERVER_VERSION = 'raw-webm-upload-v3';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -32,32 +33,34 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // Simple uploads index for testing
-app.get('/uploads', (req, res) => {
-    fs.readdir(uploadsDir, (error, files) => {
-        if (error) {
-            console.error('Failed to read uploads directory:', error);
-            return res.status(500).send('Could not read uploads directory');
-        }
+app.get('/uploads', async (req, res) => {
+    try {
+        const files = await fs.promises.readdir(uploadsDir);
 
         const videoFiles = files.filter((file) => {
             const lower = file.toLowerCase();
             return lower.endsWith('.mp4') || lower.endsWith('.webm');
         });
 
-        const filesWithStats = videoFiles
-            .map((file) => {
+        const filesWithStats = await Promise.all(
+            videoFiles.map(async (file) => {
                 const absolutePath = path.join(uploadsDir, file);
-                const stats = fs.statSync(absolutePath);
+                const stats = await fs.promises.stat(absolutePath);
+                const durationSeconds = await probeVideoDuration(absolutePath);
 
                 return {
                     file,
                     sizeBytes: stats.size,
                     sizeLabel: formatBytes(stats.size),
                     uploadedAt: stats.birthtime,
-                    uploadedAtLabel: stats.birthtime.toLocaleString('nl-NL'),
+                    uploadedAtLabel: formatDateTimeAmsterdam(stats.birthtime),
+                    durationSeconds,
+                    durationLabel: formatDuration(durationSeconds),
                 };
             })
-            .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+        );
+
+        filesWithStats.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
 
         const html = `
             <!doctype html>
@@ -117,10 +120,10 @@ app.get('/uploads', (req, res) => {
                 <p>Totaal: ${filesWithStats.length} videobestand(en)</p>
                 ${filesWithStats.length
                     ? `<ul>${filesWithStats
-                        .map(({ file, sizeLabel, uploadedAtLabel }) => `
+                        .map(({ file, sizeLabel, uploadedAtLabel, durationLabel }) => `
                             <li>
                                 <a href="/uploads/${encodeURIComponent(file)}" target="_blank" rel="noopener noreferrer">${file}</a>
-                                <div class="meta">Geüpload: ${uploadedAtLabel}<br />Bestandsgrootte: ${sizeLabel}</div>
+                                <div class="meta">Geüpload: ${uploadedAtLabel}<br />Duur: ${durationLabel}<br />Bestandsgrootte: ${sizeLabel}</div>
                             </li>
                         `)
                         .join('')}</ul>`
@@ -130,7 +133,10 @@ app.get('/uploads', (req, res) => {
         `;
 
         res.send(html);
-    });
+    } catch (error) {
+        console.error('Failed to read uploads directory:', error);
+        return res.status(500).send('Could not read uploads directory');
+    }
 });
 
 // Serve uploaded files publicly (for testing)
@@ -147,19 +153,22 @@ const sanitizeName = (name = 'unknown') => {
 };
 
 const createTimestamp = () => {
-    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('nl-NL', {
+        timeZone: 'Europe/Amsterdam',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+    });
 
-    const date = [
-        now.getFullYear(),
-        String(now.getMonth() + 1).padStart(2, '0'),
-        String(now.getDate()).padStart(2, '0'),
-    ].join('');
+    const parts = formatter.formatToParts(new Date());
+    const get = (type) => parts.find((part) => part.type === type)?.value || '00';
 
-    const time = [
-        String(now.getHours()).padStart(2, '0'),
-        String(now.getMinutes()).padStart(2, '0'),
-        String(now.getSeconds()).padStart(2, '0'),
-    ].join('');
+    const date = [get('year'), get('month'), get('day')].join('');
+    const time = [get('hour'), get('minute'), get('second')].join('');
 
     return `${date}_${time}`;
 };
@@ -175,6 +184,63 @@ const formatBytes = (bytes = 0) => {
 
     const value = bytes / Math.pow(1024, unitIndex);
     return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const formatDateTimeAmsterdam = (date) => {
+    return new Intl.DateTimeFormat('nl-NL', {
+        timeZone: 'Europe/Amsterdam',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+    }).format(date);
+};
+
+const formatDuration = (seconds = 0) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return 'Onbekend';
+    }
+
+    const totalSeconds = Math.round(seconds);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+    }
+
+    return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+};
+
+const probeVideoDuration = (filePath) => {
+    return new Promise((resolve) => {
+        execFile(
+            'ffprobe',
+            [
+                '-v',
+                'error',
+                '-show_entries',
+                'format=duration',
+                '-of',
+                'default=noprint_wrappers=1:nokey=1',
+                filePath,
+            ],
+            (error, stdout) => {
+                if (error) {
+                    console.error('FFprobe duration error:', error.message);
+                    resolve(null);
+                    return;
+                }
+
+                const duration = Number.parseFloat(stdout.trim());
+                resolve(Number.isFinite(duration) ? duration : null);
+            }
+        );
+    });
 };
 
 // tijdelijke opslag (.webm)
