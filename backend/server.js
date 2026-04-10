@@ -166,7 +166,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
                     '-c:v',
                     'libx264',
                     '-preset',
-                    'veryfast',
+                    'ultrafast',
                     '-crf',
                     '23',
                     '-vf',
