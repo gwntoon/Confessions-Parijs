@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'compress-720p-crf23-v1';
+const SERVER_VERSION = 'compress-720p-crf23-v2';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 app.use(cors({
@@ -170,7 +170,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
                     '-crf',
                     '23',
                     '-vf',
-                    'scale=-2:720:force_original_aspect_ratio=decrease',
+                    'scale=720:720:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1',
                     '-pix_fmt',
                     'yuv420p',
                 ];
