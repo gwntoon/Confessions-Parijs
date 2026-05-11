@@ -8,7 +8,7 @@ const { google } = require('googleapis');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-drive-v1';
+const SERVER_VERSION = 'raw-webm-upload-drive-v2';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
@@ -327,6 +327,21 @@ const uploadToDrive = async (filePath, fileName) => {
     return response.data;
 };
 
+const uploadToDriveInBackground = async (filePath, fileName) => {
+    try {
+        const driveFile = await uploadToDrive(filePath, fileName);
+        console.log(`[${SERVER_VERSION}] Uploaded to Google Drive: ${driveFile.id}`);
+
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`[${SERVER_VERSION}] Removed local file after Drive upload: ${fileName}`);
+        }
+    } catch (driveError) {
+        console.error(`[${SERVER_VERSION}] Google Drive background upload error for ${fileName}:`, driveError);
+        console.error(`[${SERVER_VERSION}] Local file kept for retry/manual recovery: ${filePath}`);
+    }
+};
+
 // tijdelijke opslag (.webm)
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -376,7 +391,7 @@ app.post('/upload', upload.single('video'), (req, res) => {
         const outputFilename = `${safeName}_${timestamp}.webm`;
         const outputPath = path.join(uploadsDir, outputFilename);
 
-        fs.rename(tempPath, outputPath, async (renameError) => {
+        fs.rename(tempPath, outputPath, (renameError) => {
             if (renameError) {
                 console.error('File rename error:', renameError);
                 return res.status(500).json({
@@ -385,32 +400,16 @@ app.post('/upload', upload.single('video'), (req, res) => {
                 });
             }
 
-            try {
-                console.log(`[${SERVER_VERSION}] Saved raw WebM upload locally: ${outputFilename}`);
+            console.log(`[${SERVER_VERSION}] Saved raw WebM upload locally: ${outputFilename}`);
 
-                const driveFile = await uploadToDrive(outputPath, outputFilename);
-                console.log(`[${SERVER_VERSION}] Uploaded to Google Drive: ${driveFile.id}`);
+            res.json({
+                message: 'Upload received',
+                file: outputFilename,
+                hasAudio: null,
+                driveUpload: 'queued',
+            });
 
-                if (fs.existsSync(outputPath)) {
-                    fs.unlinkSync(outputPath);
-                }
-
-                return res.json({
-                    message: 'Upload successful',
-                    file: outputFilename,
-                    hasAudio: null,
-                    driveFileId: driveFile.id,
-                    driveWebViewLink: driveFile.webViewLink || null,
-                    driveWebContentLink: driveFile.webContentLink || null,
-                });
-            } catch (driveError) {
-                console.error('Google Drive upload error:', driveError);
-
-                return res.status(500).json({
-                    error: 'Upload to Google Drive failed',
-                    details: driveError.message,
-                });
-            }
+            uploadToDriveInBackground(outputPath, outputFilename);
         });
 
     } catch (error) {

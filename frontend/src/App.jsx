@@ -8,13 +8,14 @@ function App() {
   const autoStopTimeoutRef = useRef(null);
   const recordingIntervalRef = useRef(null);
   const messageTimeoutRef = useRef(null);
-
+  const clientUploadCompletedRef = useRef(false);
 
   const [cameraReady, setCameraReady] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [countdown, setCountdown] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showUploadProgress, setShowUploadProgress] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [recordingSecondsLeft, setRecordingSecondsLeft] = useState(60);
   const [feedbackMessage, setFeedbackMessage] = useState('');
@@ -45,9 +46,6 @@ function App() {
 
     setCameraReady(false);
   };
-
-
-
 
   const initCamera = async () => {
     try {
@@ -183,10 +181,10 @@ function App() {
     if (autoStopTimeoutRef.current) {
       clearTimeout(autoStopTimeoutRef.current);
     }
+
     if (recordingIntervalRef.current) {
       clearInterval(recordingIntervalRef.current);
     }
-
 
     if (
       mediaRecorderRef.current &&
@@ -207,7 +205,9 @@ function App() {
       console.error('Geen video chunks opgenomen');
       setShowPreview(false);
       stopCamera();
+      clientUploadCompletedRef.current = false;
       setIsUploading(false);
+      setShowUploadProgress(false);
       setUploadProgress(0);
       showTemporaryMessage('Upload mislukt');
       return;
@@ -220,47 +220,70 @@ function App() {
     const formData = new FormData();
     formData.append('video', blob, `confession.${extension}`);
     formData.append('name', name.trim());
+
+    clientUploadCompletedRef.current = false;
     setUploadProgress(0);
+    setShowUploadProgress(true);
 
     try {
-      const response = await axios.post('https://confessions-parijs.onrender.com/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        onUploadProgress: (progressEvent) => {
-          if (!progressEvent.total) {
-            return;
-          }
+      const response = await axios.post(
+        'https://confessions-parijs.onrender.com/upload',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          onUploadProgress: (progressEvent) => {
+            if (!progressEvent.total) {
+              return;
+            }
 
-          const uploadPercentage = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
+            const uploadPercentage = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
 
-          setUploadProgress(Math.min(uploadPercentage, 100));
-        },
-      });
+            setUploadProgress(Math.min(uploadPercentage, 100));
 
+            if (uploadPercentage >= 100 && !clientUploadCompletedRef.current) {
+              clientUploadCompletedRef.current = true;
+              setUploadProgress(100);
+              showTemporaryMessage('Uploaden gelukt');
+              setName('');
+
+              setTimeout(() => {
+                setShowUploadProgress(false);
+                setIsUploading(false);
+                setUploadProgress(0);
+              }, 600);
+            }
+          },
+        }
+      );
 
       console.log('Upload success:', response.data);
-      setUploadProgress(100);
-      showTemporaryMessage('Uploaden gelukt');
-      setName('');
     } catch (err) {
       console.error('Upload error:', err);
-      
+
       if (err.response) {
         console.error('Server response:', err.response.data);
         console.error('Status:', err.response.status);
       }
 
-      showTemporaryMessage('Upload mislukt');
+      if (!clientUploadCompletedRef.current) {
+        setShowUploadProgress(false);
+        setIsUploading(false);
+        setUploadProgress(0);
+        showTemporaryMessage('Upload mislukt');
+      }
     } finally {
-      
       setRecordingSecondsLeft(60);
       chunksRef.current = [];
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      setIsUploading(false);
-      setUploadProgress(0);
+
+      if (!clientUploadCompletedRef.current) {
+        setIsUploading(false);
+        setShowUploadProgress(false);
+        setUploadProgress(0);
+      }
     }
   };
 
@@ -299,9 +322,11 @@ function App() {
             CONFESS
           </button>
 
-          {isUploading && (
+          {showUploadProgress && (
             <div style={styles.uploadingContainerStartScreen}>
-              <div style={styles.uploadingBadge}>Uploaden... {uploadProgress}%</div>
+              <div style={styles.uploadingBadge}>
+                Uploaden... {uploadProgress}%
+              </div>
               <div style={styles.progressTrack}>
                 <div
                   style={{
@@ -389,7 +414,8 @@ const styles = {
     position: 'absolute',
     inset: 0,
     pointerEvents: 'none',
-    boxShadow: 'inset 0 0 0 3px rgba(255, 43, 43, 0.9), inset 0 0 70px rgba(255, 43, 43, 0.22)',
+    boxShadow:
+      'inset 0 0 0 3px rgba(255, 43, 43, 0.9), inset 0 0 70px rgba(255, 43, 43, 0.22)',
     zIndex: 2,
   },
   centerBox: {
@@ -400,7 +426,8 @@ const styles = {
     gap: '14px',
     width: '100%',
     maxWidth: '420px',
-    padding: 'max(20px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom))',
+    padding:
+      'max(20px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom))',
     boxSizing: 'border-box',
   },
   overlay: {
@@ -590,7 +617,10 @@ const pulseKeyframes = `
   }
 `;
 
-if (typeof document !== 'undefined' && !document.getElementById('recording-pulse-keyframes')) {
+if (
+  typeof document !== 'undefined' &&
+  !document.getElementById('recording-pulse-keyframes')
+) {
   const styleTag = document.createElement('style');
   styleTag.id = 'recording-pulse-keyframes';
   styleTag.innerHTML = pulseKeyframes;
