@@ -288,7 +288,12 @@ function App() {
   };
 
   return (
-    <div style={styles.container}>
+    <div
+      style={{
+        ...styles.container,
+        ...(!showPreview && !isRecording ? styles.startBackground : {}),
+      }}
+    >
       <video
         ref={videoRef}
         autoPlay
@@ -319,7 +324,7 @@ function App() {
             onClick={startCountdown}
             disabled={!name.trim() || isUploading}
           >
-            CONFESS
+            Vlog
           </button>
 
           {showUploadProgress && (
@@ -390,6 +395,13 @@ const styles = {
     paddingBottom: 'env(safe-area-inset-bottom)',
     boxSizing: 'border-box',
   },
+  startBackground: {
+    backgroundImage:
+      'linear-gradient(to bottom, rgba(0,0,0,0.03), rgba(0,0,0,0.62)), url("/anteros-paris-bg.jpg")',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  },
   videoVisible: {
     position: 'absolute',
     inset: 0,
@@ -426,8 +438,9 @@ const styles = {
     gap: '14px',
     width: '100%',
     maxWidth: '420px',
+    marginTop: 'auto',
     padding:
-      'max(20px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom))',
+      'max(20px, env(safe-area-inset-top)) 24px max(42px, env(safe-area-inset-bottom))',
     boxSizing: 'border-box',
   },
   overlay: {
@@ -445,26 +458,29 @@ const styles = {
     width: '100%',
     padding: '16px 18px',
     fontSize: 'clamp(16px, 4vw, 18px)',
-    borderRadius: '12px',
-    border: '1px solid rgba(255,255,255,0.25)',
-    background: 'rgba(255,255,255,0.08)',
+    borderRadius: '999px',
+    border: '1px solid rgba(255,255,255,0.22)',
+    background: 'rgba(20, 12, 18, 0.72)',
     color: '#fff',
     outline: 'none',
     textAlign: 'center',
     boxSizing: 'border-box',
+    backdropFilter: 'blur(12px)',
+    boxShadow: '0 10px 28px rgba(0, 0, 0, 0.32)',
   },
   button: {
     zIndex: 4,
     width: '100%',
     maxWidth: '320px',
-    minHeight: '56px',
+    minHeight: '64px',
     padding: '18px 32px',
-    fontSize: 'clamp(20px, 5vw, 24px)',
+    fontSize: 'clamp(26px, 6vw, 34px)',
     fontWeight: 'bold',
-    background: '#d00000',
+    background: 'linear-gradient(135deg, #ff5b9e, #e93476)',
     border: 'none',
-    borderRadius: '12px',
+    borderRadius: '24px',
     color: '#fff',
+    boxShadow: '0 16px 40px rgba(233, 52, 118, 0.38)',
   },
   stopButton: {
     zIndex: 4,
