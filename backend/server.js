@@ -8,7 +8,7 @@ const { google } = require('googleapis');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const SERVER_VERSION = 'raw-webm-upload-drive-v2';
+const SERVER_VERSION = 'raw-video-upload-drive-v1';
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
 const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
@@ -191,6 +191,23 @@ const createTimestamp = () => {
     return `${date}_${time}`;
 };
 
+const getUploadedVideoFormat = (file) => {
+    const originalExtension = path.extname(file.originalname || '').toLowerCase();
+    const mimeType = file.mimetype || '';
+
+    if (originalExtension === '.mp4' || mimeType.includes('mp4')) {
+        return {
+            extension: '.mp4',
+            mimeType: 'video/mp4',
+        };
+    }
+
+    return {
+        extension: '.webm',
+        mimeType: 'video/webm',
+    };
+};
+
 const formatBytes = (bytes = 0) => {
     if (bytes === 0) return '0 B';
 
@@ -302,7 +319,7 @@ const probeVideoDuration = (filePath) => {
     });
 };
 
-const uploadToDrive = async (filePath, fileName) => {
+const uploadToDrive = async (filePath, fileName, mimeType = 'video/webm') => {
     if (!drive) {
         throw new Error('Google Drive is not configured');
     }
@@ -317,7 +334,7 @@ const uploadToDrive = async (filePath, fileName) => {
             parents: [GOOGLE_DRIVE_FOLDER_ID],
         },
         media: {
-            mimeType: 'video/webm',
+            mimeType,
             body: fs.createReadStream(filePath),
         },
         fields: 'id, webViewLink, webContentLink',
@@ -327,9 +344,9 @@ const uploadToDrive = async (filePath, fileName) => {
     return response.data;
 };
 
-const uploadToDriveInBackground = async (filePath, fileName) => {
+const uploadToDriveInBackground = async (filePath, fileName, mimeType) => {
     try {
-        const driveFile = await uploadToDrive(filePath, fileName);
+        const driveFile = await uploadToDrive(filePath, fileName, mimeType);
         console.log(`[${SERVER_VERSION}] Uploaded to Google Drive: ${driveFile.id}`);
 
         if (fs.existsSync(filePath)) {
@@ -386,9 +403,10 @@ app.post('/upload', upload.single('video'), (req, res) => {
 
         const safeName = sanitizeName(rawName);
         const timestamp = createTimestamp();
+        const videoFormat = getUploadedVideoFormat(req.file);
 
         const tempPath = req.file.path;
-        const outputFilename = `${safeName}_${timestamp}.webm`;
+        const outputFilename = `${safeName}_${timestamp}${videoFormat.extension}`;
         const outputPath = path.join(uploadsDir, outputFilename);
 
         fs.rename(tempPath, outputPath, (renameError) => {
@@ -407,9 +425,10 @@ app.post('/upload', upload.single('video'), (req, res) => {
                 file: outputFilename,
                 hasAudio: null,
                 driveUpload: 'queued',
+                mimeType: videoFormat.mimeType,
             });
 
-            uploadToDriveInBackground(outputPath, outputFilename);
+            uploadToDriveInBackground(outputPath, outputFilename, videoFormat.mimeType);
         });
 
     } catch (error) {
